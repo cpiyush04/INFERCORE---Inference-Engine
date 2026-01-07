@@ -28,38 +28,52 @@ public:
 
 private:
 
-    // Consumer loop
+    // Consumer loop (Batching Version)
     void loop() {
+
+        // Batch Setup
+        const size_t MAX_BATCH_SIZE = 10;
+        const int BATCH_TIMEOUT_MS = 5; // Waiting time to fill the batch
+    
         while (true) {
 
-            // Empty request object to be filled
-            Request req;
+            std::vector<Request> batch;
 
-            bool active = request_queue_.wait_and_pop(req);
+            size_t count = request_queue_.pop_batch(batch, MAX_BATCH_SIZE, BATCH_TIMEOUT_MS);
 
-            // 2. If false, Break the loop immediately!
-            if (!active) {
-
-                // Shutdown was triggered
-                std::cout << "[Worker] Shutdown signal received. Exiting.\n";
-                break;
+            if (count == 0) {
+                if (request_queue_.is_stopped()) {
+                    std::cout << "[Worker] Shutdown signal received. Exiting.\n";
+                    break;
+                }
+                
+                continue;
             }
 
-            // Simulate request processing time based on input length
-            int processing_time = req.input_token_count * 10; 
-            
-            std::cout << "[Worker] Processing Request ID: " << req.id 
-                      << " (" << req.input_token_count << " tokens)..." << std::endl;
+            // max token length governs the compute time in batch
+            int max_tokens = 0;
+
+            std::cout << "[Worker] Batch of " << count << ": IDs [ ";
+            for (const auto& req : batch) {
+                if (req.input_token_count > max_tokens) max_tokens = req.input_token_count;
+                std::cout << req.id << " ";
+            }
+            std::cout << "] (Compute Load: " << max_tokens << ")\n";
+
+            // Simulate request processing time based on max token length in the batch
+            int processing_time = max_tokens * 10; 
             
             // Artificial delay to simulate GPU/CPU compute
             std::this_thread::sleep_for(std::chrono::milliseconds(processing_time));
 
-            // End-to-End latency from request creation
             auto end_time = std::chrono::high_resolution_clock::now();
-            auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - req.start_time).count();
 
-            std::cout << "[Worker] Finished ID: " << req.id 
+            // Log tail latencies for each batch request
+            for (const auto& req : batch) {
+                auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - req.start_time).count();
+                std::cout << "[Worker] Finished ID: " << req.id 
                       << " | Latency: " << latency << "ms" << std::endl;
+            }
         }
     }
 };

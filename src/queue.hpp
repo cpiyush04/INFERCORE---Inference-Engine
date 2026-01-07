@@ -46,23 +46,34 @@ public:
         cv_.notify_all();
     }
 
-    // Blocks until data is available or shutdown is triggered
-    bool wait_and_pop(T& out_value) {
+    // Returns whether shutdown has been requested
+    bool is_stopped() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return stopped_;
+    }
+
+    // Pops up to `max_batch_size` elements into `out_batch`.
+    size_t pop_batch(std::vector<T>& out_batch, size_t max_batch_size, int timeout_ms) {
         std::unique_lock<std::mutex> lock(mutex_);
-        
-        // Wake up if we have data OR if we were told to stop
-        cv_.wait(lock, [this] { 
-            return !queue_.empty() || stopped_; 
-        });
 
+        // Update wait condition to include timeout
+        cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), 
+            [this] { return !queue_.empty() || stopped_; });
 
+        // Check if shutdown is requested and there is no remaining work,
+        // return immediately to allow worker threads to exit.
         if (stopped_ && queue_.empty()) {
-            return false; // Signal to the worker to quit
+            return 0;
         }
 
-        out_value = queue_.front();
-        queue_.pop();
-        return true;
+        size_t count = 0;
+        while (!queue_.empty() && count < max_batch_size) {
+            out_batch.push_back(queue_.front());
+            queue_.pop();
+            count++;
+        }
+
+        return count;
     }
     
     bool empty() const {
