@@ -8,7 +8,8 @@
 // Simple structure representing an LLM inference request
 struct Request {
     int id; // Unique ID for the user's request
-    int input_token_count; // length of input tokens
+    // This represents the number of NEW tokens the model must generate (Decode Phase).
+    int tokens_to_generate;
 
     // added timestamp to track request creation time
     std::chrono::high_resolution_clock::time_point start_time;

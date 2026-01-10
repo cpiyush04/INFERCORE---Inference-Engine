@@ -5,7 +5,7 @@
 
 // Configuration
 const int users_count = 50;       // Enough users to expose memory scaling issues
-const int prompt_len = 64;       // short chat prompt length
+const int tokens_to_generate = 64;       // short chat prompt length
 
 int main() {
 
@@ -18,8 +18,7 @@ int main() {
     std::cout << "[Test] simulating " << users_count << " users connecting...\n";
     
     for (int i = 0; i < users_count; ++i) {
-        // User provides 'prompt_len' tokens as input
-        for (int t = 0; t < prompt_len; ++t) {
+        for (int t = 0; t < tokens_to_generate; ++t) {
             // session->add_token();
             kv_manager.append_token(i);
         }
@@ -43,7 +42,7 @@ int main() {
     std::cout << "\n[Results]\n";
     std::cout << "----------------------------------------\n";
     std::cout << "Users Simulated:    " << users_count << "\n";
-    std::cout << "Tokens per User:    " << prompt_len << "\n";
+    std::cout << "Tokens per User:    " << tokens_to_generate << "\n";
     std::cout << "----------------------------------------\n";
     std::cout << "Total Memory RESERVED: " << reserved_mb << " MB\n";
     std::cout << "Total Memory USED:     " << used_mb << " MB\n";
