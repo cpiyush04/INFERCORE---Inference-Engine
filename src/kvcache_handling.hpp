@@ -1,52 +1,92 @@
 #pragma once
 #include <vector>
+#include <map>
+#include <stack>
 #include <iostream>
 
-class KVCache {
-public:
+// Configuration
+const int BLOCK_SIZE = 16; 
+const int EMB_DIM = 1024; 
+
+// A Single KV cache block representation
+struct KVCacheBlock {
+    int id;               
+    int num_tokens;       
     
-    // defining LLM config constants
-    static const int max_input_len = 2048; // max context length allowed
-    static const int emb_dim = 1024;  // size of one token vector
-    
-    // Simulated contiguous memory block
+    // Storage 16 tokens * 1024 floats
     std::vector<float> memory_block;
-    
-    // Tracking
-    int current_token_count = 0;
-    size_t allocated_bytes = 0;
 
-    KVCache(int id) {
-
-        // allocate pre-determined memory immediately
-        size_t total_elements = max_input_len * emb_dim;
-
-        memory_block.resize(total_elements, 0.0f);
-        
-        // memory reserved for use to a single user
-        allocated_bytes = total_elements * sizeof(float);
-        
-        // Note: We haven't stored any real data yet!
-        current_token_count = 0;
+    KVCacheBlock(int block_id) : id(block_id), num_tokens(0) {
+        memory_block.resize(BLOCK_SIZE * EMB_DIM, 0.0f);
     }
 
-    // Simulate the user generating 1 token
-    void add_token() {
-        if (current_token_count < max_input_len) {
-            current_token_count++;
+    bool is_full() const {
+        return num_tokens >= BLOCK_SIZE;
+    }
+};
+
+// Manages allocation and tracking of KV cache blocks
+class KVCacheManager {
+private:
+    std::vector<KVCacheBlock> all_blocks_;        // Physical Heap
+    std::stack<int> free_block_ids_;              // Free List
+    std::map<int, std::vector<int>> page_tables_; // User id -> list of block ids
+
+public:
+    // Initialize the fixed-size memory pool
+    KVCacheManager(size_t num_blocks) {
+        std::cout << "[Memory] Initializing Paged Manager with " << num_blocks << " blocks...\n";
+        
+        all_blocks_.reserve(num_blocks);
+        for (int i = 0; i < num_blocks; ++i) {
+            all_blocks_.emplace_back(i);
+            free_block_ids_.push(i);
         }
     }
-    
-    // Metrics
-    size_t get_used_bytes() const {
 
-        // memory that was actually used
-        return current_token_count * emb_dim * sizeof(float);
+    // Assign a free block to a sequence.
+    int allocate_block(int seq_id) {
+        if (free_block_ids_.empty()) return -1; // OOM
+
+        int physical_id = free_block_ids_.top();
+        free_block_ids_.pop();
+
+        page_tables_[seq_id].push_back(physical_id);
+        all_blocks_[physical_id].num_tokens = 0; // Reset block
+        return physical_id;
     }
-    
-    size_t get_reserved_bytes() const {
 
-        // memory that was reserved upfront
-        return allocated_bytes;
+    // Append one token for a given sequence.
+    // If the current block is full, allocate a new one.
+    void append_token(int seq_id) {
+        auto& table = page_tables_[seq_id];
+
+        // If no blocks or last block is full, allocate new one
+        if (table.empty() || all_blocks_[table.back()].is_full()) {
+            if (allocate_block(seq_id) == -1) return; // Silent fail for test (OOM)
+        }
+
+        // Add to the active block
+        int active_id = table.back();
+        all_blocks_[active_id].num_tokens++;
+    }
+
+    // Total memory reserved for a sequence
+    size_t get_reserved_bytes(int seq_id) {
+        if (page_tables_.find(seq_id) == page_tables_.end()) return 0;
+        return page_tables_[seq_id].size() * BLOCK_SIZE * EMB_DIM * sizeof(float);
+    }
+
+    // Actual memory used by tokens written so far
+    size_t get_used_bytes(int seq_id) {
+        if (page_tables_.find(seq_id) == page_tables_.end()) return 0;
+
+        size_t total_tokens = 0;
+        // Sum up tokens in every block owned by this user
+        for (int block_id : page_tables_[seq_id]) {
+            total_tokens += all_blocks_[block_id].num_tokens;
+        }
+        
+        return total_tokens * EMB_DIM * sizeof(float);
     }
 };

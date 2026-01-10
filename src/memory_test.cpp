@@ -11,35 +11,33 @@ int main() {
 
     std::cout << "=== Memory usage test ===\n";
 
-    // Simulate a Server holding user sessions
-    std::vector<std::unique_ptr<KVCache>> active_sessions;
+    // // Simulate a Server holding user sessions
+    // std::vector<std::unique_ptr<KVCache>> active_sessions;
+    KVCacheManager kv_manager(1000);
     
     std::cout << "[Test] simulating " << users_count << " users connecting...\n";
     
     for (int i = 0; i < users_count; ++i) {
-        // User connects -> System allocates memory
-        auto session = std::make_unique<KVCache>(i);
-        
         // User provides 'prompt_len' tokens as input
         for (int t = 0; t < prompt_len; ++t) {
-            session->add_token();
+            // session->add_token();
+            kv_manager.append_token(i);
         }
-        
-        active_sessions.push_back(std::move(session));
+
     }
 
     // calculate total memory usage
     size_t total_reserved_mb = 0;
     size_t total_used_mb = 0;
 
-    for (const auto& session : active_sessions) {
-        total_reserved_mb += session->get_reserved_bytes();
-        total_used_mb += session->get_used_bytes();
+    for (int i = 0; i < users_count; ++i) {
+        total_reserved_mb += kv_manager.get_reserved_bytes(i);
+        total_used_mb += kv_manager.get_used_bytes(i);
     }
     
     double reserved_mb = total_reserved_mb / (1024.0 * 1024.0);
     double used_mb = total_used_mb / (1024.0 * 1024.0);
-    double fragmentation = 100.0 * (1.0 - (used_mb / reserved_mb));
+    double fragmentation = 100.0 * (1.0 - (used_mb / reserved_mb)); 
 
     // Test Results
     std::cout << "\n[Results]\n";
