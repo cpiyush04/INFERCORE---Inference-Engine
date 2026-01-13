@@ -6,7 +6,7 @@ InferCore is a from-scratch inference engine written in C++, built to understand
 
 The engine simulates the lifecycle of LLM inference requests and focuses on solving two fundamental bottlenecks in LLM serving:
 - **Memory fragmentation in KV cache allocation**
-- **Scheduling latency due to inefficient batching**
+- **Scheduling latency**
 
 ---
 
@@ -19,11 +19,17 @@ The engine was benchmarked at each stage of development to measure how each arch
 | Naive Batching | 73.27 req/s | 0.68 s | ~6× speedup |
 | Paged Attention Integrated | 59.48 req/s | 0.84 s | ~5× speedup + 0% memory waste |
 
+> **Engineering Note:** You will notice a throughput drop from Stage 2 to Stage 3 (73 $\to$ 60 req/s). This was an intentional trade-off. Stage 2 was fast but memory-unsafe (reserving huge contiguous blocks). Stage 3 introduces the **Paged Memory Manager**, which adds a slight compute overhead but guarantees **0% memory fragmentation** and prevents OOM crashes.
+
 ### Memory Efficiency
-- **Naive Allocation:** 96.8% VRAM wasted  
-  *(allocating max sequence length for every request)*
-- **Paged Attention:** 0% VRAM wasted  
-  *(allocating 16-token blocks dynamically)*
+Simulated a workload of 50 concurrent users to analyze VRAM usage patterns.
+
+| Metric | Naive Allocation | LiteServe (Paged Attention) |
+| :--- | :--- | :--- |
+| **Allocation Strategy** | Contiguous (Max Sequence Length) | Dynamic (16-Token Blocks) |
+| **Reserved Memory** | 400 MB | 12.5 MB |
+| **Used Memory** | 12.5 MB | 12.5 MB |
+| **Wasted Memory** | **96.8%** | **0%** |
 
 ---
 
@@ -39,9 +45,8 @@ The most straightforward way to serve incoming LLM requests is to process them o
 - A single worker processes one request fully before moving to the next
 
 **What Went Wrong**
-- No overlap between requests
-- GPU idle during request setup and I/O
-- Throughput scaled very poorly
+- While the "GPU" (simulated compute) was busy with one request, all other incoming requests were blocked, leaving resources idle between steps.
+- High Latency and Throughput scaled very poorly
 
 ---
 
@@ -56,6 +61,7 @@ To improve throughput, batching was introduced.
 - This simulates batched matrix multiplication during inference
 
 **Impact**
+- This drastically reduced the overhead of context switching and improved hardware utilization.
 - Throughput jumped to **73.27 req/s**
 - Latency dropped significantly
 
